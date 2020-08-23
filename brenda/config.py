@@ -59,7 +59,7 @@ class Config(dict):
 
     def _load_from_env(self, env_prefix):
         if env_prefix:
-            for k, v in os.environ.iteritems():
+            for k, v in os.environ.items():
                 if k.startswith(env_prefix):
                     self[k[len(env_prefix):]] = v
 

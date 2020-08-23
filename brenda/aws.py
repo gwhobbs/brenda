@@ -1,3 +1,5 @@
+from __future__ import division
+from __future__ import print_function
 # Brenda -- Blender render tool for Amazon Web Services
 # Copyright (C) 2013 James Yonan <james@openvpn.net>
 #
@@ -14,9 +16,12 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import os, time, datetime, calendar, urllib2
-import boto, boto.sqs, boto.s3, boto.ec2
-import boto.utils
+from future import standard_library
+standard_library.install_aliases()
+from builtins import str
+from past.utils import old_div
+import os, time, datetime, calendar, urllib.request, urllib.error, urllib.parse
+import boto3
 from brenda import utils
 from brenda.error import ValueErrorRetry
 from brenda.ami import AMI_ID
@@ -27,34 +32,25 @@ def aws_creds(conf):
         'aws_secret_access_key' : conf['AWS_SECRET_KEY'],
         }
 
-def get_s3_conn(conf):
+def get_conn(conf, resource_type="s3"):
     region = conf.get('S3_REGION')
     if region:
-        conn = boto.s3.connect_to_region(region, **aws_creds(conf))
+        conn = boto3.resource(resource_type, region_name=region, **aws_creds(conf))
         if not conn:
-            raise ValueErrorRetry("Could not establish S3 connection to region %r" % (region,))
+            raise ValueErrorRetry("Could not establish {} connection to region {}".format(resource_type, region))
     else:
-        conn = boto.connect_s3(**aws_creds(conf))
+        conn = boto3.resource(resource_type, **aws_creds(conf))
     return conn
 
-def get_sqs_conn(conf):
-    region = conf.get('SQS_REGION')
+def get_ec2_client(conf):
+    region = conf.get('S3_REGION')
+    resource_type = "ec2"
     if region:
-        conn = boto.sqs.connect_to_region(region, **aws_creds(conf))
+        conn = boto3.client(resource_type, region_name=region, **aws_creds(conf))
         if not conn:
-            raise ValueErrorRetry("Could not establish SQS connection to region %r" % (region,))
+            raise ValueErrorRetry("Could not establish {} connection to region {}".format(resource_type, region))
     else:
-        conn = boto.connect_sqs(**aws_creds(conf))
-    return conn
-
-def get_ec2_conn(conf):
-    region = conf.get('EC2_REGION')
-    if region:
-        conn = boto.ec2.connect_to_region(region, **aws_creds(conf))
-        if not conn:
-            raise ValueErrorRetry("Could not establish EC2 connection to region %r" % (region,))
-    else:
-        conn = boto.connect_ec2(**aws_creds(conf))
+        conn = boto3.client(resource_type, **aws_creds(conf))
     return conn
 
 def parse_s3_url(url):
@@ -73,7 +69,6 @@ def s3_get(conf, s3url, dest, etag=None):
     tuple == paracurl.PC_ERR_ETAG_MATCH.  Returns tuple of
     (file_length, etag).
     """
-    import paracurl
 
     paracurl_kw = {
         'max_threads' : int(conf.get('CURL_MAX_THREADS', '16')),
@@ -85,20 +80,27 @@ def s3_get(conf, s3url, dest, etag=None):
     s3tup = parse_s3_url(s3url)
     if not s3tup or len(s3tup) != 2:
         raise ValueError("s3_get: bad s3 url: %r" % (s3url,))
-    conn = get_s3_conn(conf)
-    buck = conn.get_bucket(s3tup[0])
-    k = boto.s3.key.Key(buck)
-    k.key = s3tup[1]
-    url = k.generate_url(600, force_http=True)
-    return paracurl.download(dest, url, **paracurl_kw)
+    conn = get_conn(conf, "s3")
+    buck = conn.Bucket(s3tup[0])
+    object_ref = conn.Object(buck.name,s3tup[1])
+    key = object_ref.get()
+    etag = key['ETag']
+    content_len = key['ContentLength']
+    body = key['Body'].read()
+    with open(dest, 'wb') as file_out:
+        file_out.write(body)
+    return content_len, etag
 
-def put_s3_file(bucktup, path, s3name):
+def put_s3_file(conf, bucktup, path, s3name):
     """
     bucktup is the return tuple of get_s3_output_bucket_name
     """
-    k = boto.s3.key.Key(bucktup[0])
-    k.key = bucktup[1][1] + s3name
-    k.set_contents_from_filename(path, reduced_redundancy=True)
+
+    conn = get_conn(conf, "s3")
+
+    object_ref = conn.Object(bucktup[1][0],bucktup[1][1] + s3name)
+    object_ref.put(Body=open(path, 'rb'), StorageClass='REDUCED_REDUNDANCY')
+
 
 def format_s3_url(bucktup, s3name):
     """
@@ -121,8 +123,8 @@ def get_s3_output_bucket_name(conf):
 
 def get_s3_output_bucket(conf):
     bn = get_s3_output_bucket_name(conf)
-    conn = get_s3_conn(conf)
-    buck = conn.get_bucket(bn[0])
+    conn = get_conn(conf, "s3")
+    buck = conn.Bucket(bn[0])
     return buck, bn
 
 def parse_sqs_url(url):
@@ -141,36 +143,38 @@ def get_sqs_work_queue_name(conf):
 def create_sqs_queue(conf):
     visibility_timeout = int(conf.get('VISIBILITY_TIMEOUT', '120'))
     qname = get_sqs_work_queue_name(conf)
-    conn = get_sqs_conn(conf)
-    return conn.create_queue(qname, visibility_timeout=visibility_timeout)
+    conn = get_conn(conf, "sqs")
+    return conn.create_queue(QueueName=qname, Attributes={'VisibilityTimeout': str(visibility_timeout)})
 
 def get_sqs_conn_queue(conf):
     qname = get_sqs_work_queue_name(conf)
-    conn = get_sqs_conn(conf)
-    return conn.get_queue(qname), conn
+    conn = get_conn(conf, "sqs")
+    return conn.get_queue_by_name(QueueName=qname), conn
 
 def get_sqs_queue(conf):
     return get_sqs_conn_queue(conf)[0]
 
 def write_sqs_queue(string, queue):
-    m = boto.sqs.message.Message()
-    m.set_body(string)
-    queue.write(m)
+    queue.send_message(MessageBody=string)
 
 def get_ec2_instances_from_conn(conn, instance_ids=None):
-    reservations = conn.get_all_instances(instance_ids=instance_ids)
-    return [i for r in reservations for i in r.instances]
+    filter_args = {}
+
+    if instance_ids:
+        filter_args['InstanceIds'] = instance_ids
+    reservations = conn.instances.filter(**filter_args)
+    return [r for r in reservations]
 
 def get_ec2_instances(conf, instance_ids=None):
-    conn = get_ec2_conn(conf)
+    conn = get_conn(conf, "ec2")
     return get_ec2_instances_from_conn(conn, instance_ids)
 
 def get_snapshots(conf):
-    conn = get_ec2_conn(conf)
-    return conn.get_all_snapshots(owner='self')
+    conn = get_conn(conf, "ec2")
+    return conn.snapshots.all()
 
 def get_volumes(conf):
-    conn = get_ec2_conn(conf)
+    conn = get_conn(conf, "ec2")
     return conn.get_all_volumes()
 
 def find_snapshot(snapshots, name):
@@ -193,13 +197,12 @@ def format_uptime(sec):
     return str(datetime.timedelta(seconds=sec))
 
 def get_uptime(now, aws_launch_time):
-    lt = boto.utils.parse_ts(aws_launch_time)
-    return int(now - calendar.timegm(lt.timetuple()))
+    return int(now - aws_launch_time.timestamp())
 
 def filter_instances(opts, conf, hostset=None):
     def threshold_test(aws_launch_time):
         ut = get_uptime(now, aws_launch_time)
-        return (ut / 60) % 60 >= opts.threshold
+        return (old_div(ut, 60)) % 60 >= opts.threshold
 
     now = time.time()
     ami = utils.get_opt(opts.ami, conf, 'AMI_ID', default=AMI_ID)
@@ -226,22 +229,22 @@ def shutdown_by_public_dns_name(opts, conf, dns_names):
     iids = []
     for i in get_ec2_instances(conf):
         if i.public_dns_name in dns_names:
-            iids.append(i.id)
+            iids.append(i.instance_id)
     shutdown(opts, conf, iids)
 
 def shutdown(opts, conf, iids):
     # Note that persistent spot instances must be explicitly cancelled,
     # or EC2 will automatically requeue the spot instance request
     if opts.terminate:
-        print "TERMINATE", iids
+        print("TERMINATE", iids)
         if not opts.dry_run and iids:
-            conn = get_ec2_conn(conf)
+            conn = get_conn(conf, "ec2")
             cancel_spot_requests_from_instance_ids(conn, instance_ids=iids)
             conn.terminate_instances(instance_ids=iids)
     else:
-        print "SHUTDOWN", iids
+        print("SHUTDOWN", iids)
         if not opts.dry_run and iids:
-            conn = get_ec2_conn(conf)
+            conn = get_conn(conf, "ec2")
             cancel_spot_requests_from_instance_ids(conn, instance_ids=iids)
             conn.stop_instances(instance_ids=iids)
 
@@ -319,10 +322,11 @@ def get_work_dir(conf):
         utils.makedirs(work_dir)
     return work_dir
 
-def add_instance_store(opts, conf, bdm, itype):
+def add_instance_store(opts, conf, blkprops, itype):
     if not itype.startswith('t1.'):
         dev = utils.blkdev(0, istore=True)
-        bdm[dev] = boto.ec2.blockdevicemapping.EBSBlockDeviceType(ephemeral_name='ephemeral0')
+        blkprops['DeviceName'] = dev
+        blkprops['Ebs'] = {'VolumeSize': 4, 'DeleteOnTermination': True}
         return dev
 
 def additional_ebs_iterator(conf):
@@ -337,24 +341,35 @@ def additional_ebs_iterator(conf):
 
 def blk_dev_map(opts, conf, itype, snapshots):
     if not int(conf.get('NO_EBS', '0')):
-        bdm = boto.ec2.blockdevicemapping.BlockDeviceMapping()
+        bdm = []
+        block_device = {}
         snap = project_ebs_snapshot(conf)
         snap_id = translate_snapshot_name(conf, snap, snapshots)
         snap_description = []
         if snap_id:
             dev = utils.blkdev(0)
-            bdm[dev] = boto.ec2.blockdevicemapping.EBSBlockDeviceType(snapshot_id=snap_id, delete_on_termination=True)
+            block_device['DeviceName'] = dev
+            block_device['Ebs']['SnapshotId'] = snap_id
+            block_device['Ebs']['DeleteOnTermination'] = True
             snap_description.append((snap, snap_id, dev))
+            bdm.append(block_device)
         i = 0
         for k in additional_ebs_iterator(conf):
             i += 1
+
+            temp_block_device = {}
             snap = parse_ebs_url(conf[k].split(',')[0])
             snap_id = translate_snapshot_name(conf, snap, snapshots)
             if snap_id:
                 dev = utils.blkdev(i)
-                bdm[dev] = boto.ec2.blockdevicemapping.EBSBlockDeviceType(snapshot_id=snap_id, delete_on_termination=True)
+                temp_block_device['DeviceName'] = dev
+                temp_block_device['Ebs']['SnapshotId'] = snap_id
+                temp_block_device['Ebs']['DeleteOnTermination'] = True
+                bdm.append(temp_block_device)
                 snap_description.append((snap, snap_id, dev))
-        istore_dev = add_instance_store(opts, conf, bdm, itype)
+        istore_block_device = {}
+        istore_dev = add_instance_store(opts, conf, istore_block_device, itype)
+        bdm.append(istore_block_device)
         return bdm, snap_description, istore_dev
     else:
         return None, None, None
@@ -368,15 +383,15 @@ def mount_additional_ebs(conf, proj_dir):
         utils.mount(dev, dir)
 
 def get_instance_id_self():
-    req = urllib2.Request("http://169.254.169.254/latest/meta-data/instance-id")
-    response = urllib2.urlopen(req)
+    req = urllib.request.Request("http://169.254.169.254/latest/meta-data/instance-id")
+    response = urllib.request.urlopen(req)
     the_page = response.read()
     return the_page
 
 def get_spot_request_dict(conf):
-    ec2 = get_ec2_conn(conf)
-    requests = ec2.get_all_spot_instance_requests()
-    return dict([(sir.id, sir) for sir in requests])
+    ec2 = get_conn(conf, "ec2")
+    requests = ec2.describe_spot_instance_requests()
+    return dict([(sir.get('SpotInstanceRequestId'), sir) for sir in requests])
 
 def get_spot_request_from_instance_id(conf, iid):
     instances = get_ec2_instances(conf, instance_ids=(iid,))
@@ -384,15 +399,15 @@ def get_spot_request_from_instance_id(conf, iid):
         return instances[0].spot_instance_request_id
 
 def cancel_spot_request(conf, sir):
-    conn = get_ec2_conn(conf)
-    conn.cancel_spot_instance_requests(request_ids=(sir,))
+    conn = get_conn(conf, "ec2")
+    conn.cancel_spot_instance_requests(SpotInstanceRequestIds=(sir,))
 
 def cancel_spot_requests_from_instance_ids(conn, instance_ids):
     instances = get_ec2_instances_from_conn(conn, instance_ids=instance_ids)
-    sirs = [ i.spot_instance_request_id for i in instances if i.spot_instance_request_id ]
-    print "CANCEL", sirs
+    sirs = [ i.get('SpotInstanceRequestId') for i in instances if i.get('SpotInstanceRequestId') ]
+    print("CANCEL", sirs)
     if sirs:
-        conn.cancel_spot_instance_requests(request_ids=sirs)
+        conn.cancel_spot_instance_requests(SpotInstanceRequestIds=sirs)
 
 def config_file_name():
     config = os.environ.get("BRENDA_CONFIG")

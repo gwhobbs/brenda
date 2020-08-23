@@ -1,5 +1,4 @@
-from distutils.core import setup, Extension
-import platform
+from distutils.core import setup
 
 # original version
 VERSION="0.5"
@@ -9,10 +8,6 @@ with open('brenda/version.py') as f:
     exec(f.read())
 
 ext_modules = []
-
-if platform.system() == 'Linux':
-    ext_modules = [ Extension("paracurl", ["paracurl/paracurl.c"],
-                              libraries=['curl']) ]
 
 setup(name = "Brenda",
       version = VERSION,

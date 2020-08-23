@@ -1,3 +1,4 @@
+from __future__ import print_function
 # Brenda -- Blender render tool for Amazon Web Services
 # Copyright (C) 2013 James Yonan <james@openvpn.net>
 #
@@ -28,19 +29,24 @@ def create_instance_with_ebs(opts, conf, new):
     ssh_key_name = conf.get("SSH_KEY_NAME", "brenda")
     sec_groups = (conf.get("SECURITY_GROUP", "brenda"),)
 
+    bdm = []
     blkprops = {}
+    blkprops['Ebs'] = {}
     if new:
-        blkprops['size'] = opts.size
+        blkprops['Ebs']['VolumeSize'] = opts.size
     else:
         if opts.size > 1:
-            blkprops['size'] = opts.size
+            blkprops['Ebs']['VolumeSize'] = opts.size
         if not opts.snapshot:
             raise ValueError("--snapshot must be specified")
-        blkprops['snapshot_id'] = aws.translate_snapshot_name(conf, opts.snapshot)
+        blkprops['Ebs']['SnapshotId'] = aws.translate_snapshot_name(conf, opts.snapshot)
 
-    bdm = boto.ec2.blockdevicemapping.BlockDeviceMapping()
-    bdm[utils.blkdev(0)] = boto.ec2.blockdevicemapping.EBSBlockDeviceType(delete_on_termination=False, **blkprops)
-    istore_dev = aws.add_instance_store(opts, conf, bdm, itype)
+    blkprops['Ebs']['DeleteOnTermination'] = False
+    blkprops['DeviceName'] = utils.blkdev(0)
+    bdm.append(blkprops)
+    istore_block_device = {}
+    istore_dev = aws.add_instance_store(opts, conf, istore_block_device, itype)
+    bdm.append(istore_block_device)
 
     script = None
     if opts.mount:
@@ -51,22 +57,25 @@ def create_instance_with_ebs(opts, conf, new):
         script += "/bin/mount %s /mnt\n" % (dev,)
 
     run_args = {
-        'image_id'         : ami_id,
-        'instance_type'    : itype,
-        'key_name'         : ssh_key_name,
-        'security_groups'  : sec_groups,
-        'placement'        : zone,
-        'block_device_map' : bdm,
+        'ImageId'         : ami_id,
+        'InstanceType'    : itype,
+        'KeyName'         : ssh_key_name,
+        'SecurityGroups'  : sec_groups,
+        'BlockDeviceMappings' : bdm,
+        'MaxCount': 1,
+        'MinCount': 1
         }
+    if zone:
+        run_args['Placement'] = zone
     if script:
-        run_args['user_data'] = script
+        run_args['UserData'] = script
 
-    print "RUN ARGS"
+    print("RUN ARGS")
     for k, v in sorted(run_args.items()):
-        print "  %s : %r" % (k, v)
-    print "BLK DEV PROPS", blkprops
-    print "ISTORE DEV", istore_dev
+        print("  %s : %r" % (k, v))
+    print("BLK DEV PROPS", blkprops)
+    print("ISTORE DEV", istore_dev)
     if not opts.dry_run:
-        ec2 = aws.get_ec2_conn(conf)
-        reservation = ec2.run_instances(**run_args)
-        print reservation
+        ec2 = aws.get_conn(conf, "ec2")
+        reservation = ec2.create_instances(**run_args)
+        print(reservation)

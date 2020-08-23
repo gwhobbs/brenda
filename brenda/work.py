@@ -1,3 +1,4 @@
+from __future__ import print_function
 # Brenda -- Blender render tool for Amazon Web Services
 # Copyright (C) 2013 James Yonan <james@openvpn.net>
 #
@@ -14,6 +15,8 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+from builtins import str
+from builtins import range
 import random
 from brenda import aws
 
@@ -24,10 +27,10 @@ def subframe_iterator(opts):
     if subframe_iterator_defined(opts):
         xfrac = 1.0 / opts.subdiv_x
         yfrac = 1.0 / opts.subdiv_y
-        for x in xrange(opts.subdiv_x):
+        for x in range(opts.subdiv_x):
             min_x = x * xfrac
             max_x = (x+1) * xfrac
-            for y in xrange(opts.subdiv_y):
+            for y in range(opts.subdiv_y):
                 min_y = y * yfrac
                 max_y = (y+1) * yfrac
                 yield (
@@ -44,7 +47,7 @@ def push(opts, args, conf):
 
     # build tasklist
     tasklist = []
-    for fnum in xrange(opts.start, opts.end+1, opts.task_size):
+    for fnum in range(opts.start, opts.end+1, opts.task_size):
         script = task_script
         start = fnum
         end = min(fnum + opts.task_size - 1, opts.end)
@@ -76,14 +79,14 @@ def push(opts, args, conf):
 
     # push work queue to sqs
     for task in tasklist:
-        print task,
+        print(task, end=' ')
         if q is not None:
             aws.write_sqs_queue(task, q)
 
 def status(opts, args, conf):
     q = aws.get_sqs_queue(conf)
     if q is not None:
-        print "Queued tasks:", q.count()
+        print("Queued tasks:", q.attributes.get('ApproximateNumberOfMessages'))
 
 def reset(opts, args, conf):
     q, conn = aws.get_sqs_conn_queue(conf)
@@ -91,4 +94,4 @@ def reset(opts, args, conf):
         if opts.hard:
             conn.delete_queue(q)
         else:
-            q.clear()
+            q.purge()

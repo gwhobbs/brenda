@@ -1,1 +1,1 @@
-python $HOME/src/brenda/test/perframe.py --pause 0 -o $OUTDIR/frame_###### -s $START -e $END -j $STEP
+python $HOME/blender_projects/brenda/test/perframe.py --pause 0 -o $OUTDIR/frame_###### -s $START -e $END -j $STEP

@@ -3,4 +3,3 @@
 set -e
 rm -rf build
 python setup.py build
-cp build/*/paracurl.so .

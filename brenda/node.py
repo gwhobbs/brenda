@@ -1,3 +1,4 @@
+from __future__ import print_function
 # Brenda -- Blender render tool for Amazon Web Services
 # Copyright (C) 2013 James Yonan <james@openvpn.net>
 #
@@ -14,8 +15,8 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+from builtins import object
 import os, sys, signal, subprocess, multiprocessing, stat, time
-import paracurl
 from brenda import aws, utils, error
 
 class State(object):
@@ -51,15 +52,15 @@ def s3_push_process(opts, args, conf, outdir):
         for dirpath, dirnames, filenames in os.walk(outdir):
             for f in filenames:
                 path = os.path.join(dirpath, f)
-                print "PUSH", path, "TO", aws.format_s3_url(bucktup, f)
-                aws.put_s3_file(bucktup, path, f)
+                print("PUSH", path, "TO", aws.format_s3_url(bucktup, f))
+                aws.put_s3_file(conf, bucktup, path, f)
             break
 
     try:
         error.retry(conf, do_s3_push)
-    except Exception, e:
-        print "S3 push failed:", e
-        sys.exit(1)
+    except Exception as e:
+        print("S3 push failed:", e)
+        raise e
     sys.exit(0)
 
 def run_tasks(opts, args, conf):
@@ -85,7 +86,7 @@ def run_tasks(opts, args, conf):
         utils.write_atomic('task_last', "%d\n" % (time.time(),))
 
     def signal_handler(signal, frame):
-        print "******* SIGNAL %r, exiting" % (signal,)
+        print("******* SIGNAL %r, exiting" % (signal,))
         cleanup_all()
         sys.exit(1)
 
@@ -102,23 +103,23 @@ def run_tasks(opts, args, conf):
                 try:
                     msg = task.msg
                     task.msg = None
-                    msg.change_visibility(0) # immediately return task back to work queue
-                except Exception, e:
-                    print "******* CLEANUP EXCEPTION sqs change_visibility", name, e
+                    msg.change_visibility(VisibilityTimeout=0) # immediately return task back to work queue
+                except Exception as e:
+                    print("******* CLEANUP EXCEPTION sqs change_visibility", name, e)
             if task.proc is not None:
                 try:
                     proc = task.proc
                     task.proc = None
                     proc.stop()
-                except Exception, e:
-                    print "******* CLEANUP EXCEPTION proc stop", name, e
+                except Exception as e:
+                    print("******* CLEANUP EXCEPTION proc stop", name, e)
             if task.outdir is not None:
                 try:
                     outdir = task.outdir
                     task.outdir = None
                     utils.rmtree(outdir)
-                except Exception, e:
-                    print "******* CLEANUP EXCEPTION rm outdir", name, task.outdir, e
+                except Exception as e:
+                    print("******* CLEANUP EXCEPTION rm outdir", name, task.outdir, e)
 
     def task_loop():
         try:
@@ -151,14 +152,15 @@ def run_tasks(opts, args, conf):
                 # Get a task from the SQS work queue.  This is normally
                 # a short script that runs blender to render one
                 # or more frames.
-                task.msg = q.read()
+                _messages = q.receive_messages(MaxNumberOfMessages=1)
+                task.msg = None if len(_messages) < 1 else _messages[0]
 
                 # output some debug info
-                print "queue read:", task.msg
+                print("queue read:", task.msg)
                 if local.task_push:
-                    print "push task:", local.task_push.__dict__
+                    print("push task:", local.task_push.__dict__)
                 else:
-                    print "no task push task"
+                    print("no task push task")
 
                 # process task
                 if task.msg is not None:
@@ -175,8 +177,8 @@ def run_tasks(opts, args, conf):
                     utils.mkdir(task.outdir)
 
                     # get the task script
-                    script = task.msg.get_body()
-                    print "script len:", len(script)
+                    script = task.msg.body
+                    print("script len:", len(script))
 
                     # do macro substitution on the task script
                     script = script.replace('$OUTDIR', task.outdir)
@@ -195,12 +197,12 @@ def run_tasks(opts, args, conf):
                         os.chmod(script_fn, st.st_mode | (stat.S_IEXEC|stat.S_IXGRP|stat.S_IXOTH))
 
                         # run the script
-                        print "------- Run script %s -------" % (os.path.realpath(script_fn),)
-                        print script,
-                        print "--------------------------"
+                        print("------- Run script %s -------" % (os.path.realpath(script_fn),))
+                        print(script, end=' ')
+                        print("--------------------------")
                         task.proc = Subprocess([script_fn])
 
-                    print "active task:", local.task_active.__dict__
+                    print("active task:", local.task_active.__dict__)
 
                 # Wait for active and S3-push tasks to complete,
                 # while periodically reasserting with SQS to
@@ -233,20 +235,25 @@ def run_tasks(opts, args, conf):
                                     # Process finished successfully.  If S3-push process,
                                     # tell SQS that the task completed successfully.
                                     if name == 'push':
-                                        print "******* TASK", task.id, "COMMITTED to S3"
-                                        q.delete_message(task.msg)
+                                        print("******* TASK", task.id, "COMMITTED to S3")
+                                        q.delete_messages(Entries=[
+                                            {
+                                                'Id': task.msg.message_id,
+                                                'ReceiptHandle': task.msg.receipt_handle
+                                            },
+                                        ])
                                         task.msg = None
                                         local.task_count += 1
                                         task_complete_accounting(local.task_count)
 
                                     # active task completed?
                                     if name == 'active':
-                                        print "******* TASK", task.id, "READY-FOR-PUSH"
+                                        print("******* TASK", task.id, "READY-FOR-PUSH")
 
                             # tell SQS that we are still working on the task
                             if reassert and task.proc is not None:
-                                print "******* REASSERT", name, task.id
-                                task.msg.change_visibility(visibility_timeout)
+                                print("******* REASSERT", name, task.id)
+                                task.msg.change_visibility(VisibilityTimeout=visibility_timeout)
 
                     # break out of loop only when no pending tasks remain
                     if ((not local.task_active or local.task_active.proc is None)
@@ -273,7 +280,7 @@ def run_tasks(opts, args, conf):
                 # if no active task and no S3-push task, we are done (unless DONE is set to "poll")
                 if not local.task_active and not local.task_push:
                     if read_done_file() == "poll":
-                        print "Polling for more work..."
+                        print("Polling for more work...")
                         time.sleep(15)
                     else:
                         break
@@ -320,9 +327,9 @@ def run_tasks(opts, args, conf):
         try:
             instance_id = aws.get_instance_id_self()
             spot_request_id = aws.get_spot_request_from_instance_id(conf, instance_id)
-            print "Spot request ID:", spot_request_id
-        except Exception, e:
-            print "Error determining spot instance request:", e
+            print("Spot request ID:", spot_request_id)
+        except Exception as e:
+            print("Error determining spot instance request:", e)
 
     # get project (from s3:// or file://)
     blender_project = conf.get('BLENDER_PROJECT')
@@ -331,7 +338,7 @@ def run_tasks(opts, args, conf):
 
     # directory that blender will be run from
     proj_dir = get_project(conf, blender_project)
-    print "PROJ_DIR", proj_dir
+    print("PROJ_DIR", proj_dir)
 
     # mount additional EBS volumes
     aws.mount_additional_ebs(conf, proj_dir)
@@ -347,13 +354,13 @@ def run_tasks(opts, args, conf):
                 try:
                     # persistent spot instances must be explicitly cancelled, or
                     # EC2 will automatically requeue the spot instance request
-                    print "Canceling spot instance request:", spot_request_id
+                    print("Canceling spot instance request:", spot_request_id)
                     aws.cancel_spot_request(conf, spot_request_id)
-                except Exception, e:
-                    print "Error canceling spot instance request:", e
+                except Exception as e:
+                    print("Error canceling spot instance request:", e)
             utils.shutdown()
 
-        print "******* DONE (%d tasks completed)" % (local.task_count,)
+        print("******* DONE (%d tasks completed)" % (local.task_count,))
 
 def get_s3_project(conf, s3url, proj_dir):
     # target file in which to save S3 download
@@ -368,7 +375,7 @@ def get_s3_project(conf, s3url, proj_dir):
         try:
             with open(os.path.join(proj_dir, fn + '.etag')) as efn:
                 etag = efn.read().strip()
-        except Exception, e:
+        except Exception as e:
             pass
 
     # create new directory to download project
@@ -396,13 +403,8 @@ def get_s3_project(conf, s3url, proj_dir):
         utils.rmtree(proj_dir)
         utils.mv(new_dir, proj_dir)
 
-    except paracurl.Exception, e:
-        if e[0] == paracurl.PC_ERR_ETAG_MATCH:
-            # file was previously downloaded, don't need new_dir
-            print "Note: retaining previous download of", s3url
-        else:
-            raise
-
+    except Exception as e:
+        raise e
     finally:
         utils.rmtree(new_dir)
 

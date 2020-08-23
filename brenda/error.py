@@ -1,3 +1,4 @@
+from __future__ import print_function
 # Brenda -- Blender render tool for Amazon Web Services
 # Copyright (C) 2013 James Yonan <james@openvpn.net>
 #
@@ -14,8 +15,10 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import time, httplib, socket
-import boto.exception
+from future import standard_library
+standard_library.install_aliases()
+import time, http.client, socket
+import botocore
 
 class ValueErrorRetry(ValueError):
     """
@@ -36,16 +39,16 @@ def retry(conf, action):
         try:
             ret = action()
         # These are the exception types that justify a retry -- extend this list as needed
-        except (httplib.IncompleteRead, socket.error, boto.exception.BotoClientError, ValueErrorRetry), e:
+        except (http.client.IncompleteRead, socket.error, botocore.exceptions.ClientError, ValueErrorRetry) as e:
             now = int(time.time())
             if now > reset + reset_period:
-                print "******* RETRY RESET"
+                print("******* RETRY RESET")
                 i = 0
                 reset = now
             i += 1
-            print "******* RETRY %d/%d: %s" % (i, n_retries, e)
+            print("******* RETRY %d/%d: %s" % (i, n_retries, e))
             if i < n_retries:
-                print "******* WAITING %d seconds..." % (error_pause,)
+                print("******* WAITING %d seconds..." % (error_pause,))
                 time.sleep(error_pause)
             else:
                 raise ValueError("FAIL after %d retries" % (n_retries,))

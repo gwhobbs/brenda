@@ -16,6 +16,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+from __future__ import print_function
 import sys, os, optparse
 from brenda import aws, config, run, version
 
@@ -138,7 +139,7 @@ Examples:
     ( opts, args ) = parser.parse_args()
     #print "OPTS", (opts, args)
     if not args:
-        print >>sys.stderr, "no work, run with -h for usage"
+        print("no work, run with -h for usage", file=sys.stderr)
         sys.exit(2)
 
     # Get configuration
@@ -165,7 +166,7 @@ Examples:
     elif args[0] == 'script':
         run.script(opts, conf)
     else:
-        print >>sys.stderr, "unrecognized command:", args[0]
+        print("unrecognized command:", args[0], file=sys.stderr)
         sys.exit(2)
 
 main()

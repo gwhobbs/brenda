@@ -104,19 +104,17 @@ Tutorial (basic use)
 
 ### First steps
 
-This tutorial is intended for use on macOS or Linux, and Python 2 is required.
+This tutorial is intended for use on macOS or Linux, and Python 3 is required.
 
 If you don't have an AWS (Amazon Web Services) account, sign up
 for one now.
 
-First, install the "boto" python library.  This library is used by
-Brenda to interact with AWS.
-
 Next, download and install Brenda on the client machine.
 
-    $ git clone http://github.com/gwhobbs/brenda.git
+    $ git clone http://github.com/msmith93/brenda.git
     $ cd brenda
-    $ python setup.py install
+    $ pip install -r requirements.txt
+    $ pip install .
 
 ### EC2 key pair setup
 
@@ -940,17 +938,16 @@ Now you can append `-P cuda_setup.py` to your frame template to tell Blender to 
 ```bash
 $ add-apt-repository ppa:thomas-schiex/blender
 $ apt-get update
-$ apt-get install -y blender python-pip gcc python-dev libcurl4-openssl-dev git unzip
-$ pip install -U boto
-$ pip install -U s3cmd
+$ apt-get install -y blender python3-pip gcc python3-dev libcurl4-openssl-dev git unzip
 ```
 
 #### 4. Next, download and install Brenda.
 
 ```bash
-$ git clone http://github.com/gwhobbs/brenda.git
+$ git clone http://github.com/msmith93/brenda.git
 $ cd brenda
-$ python setup.py install
+$ pip3 install -Ur requirements.txt
+$ pip3 install -U .
 ```
 
 #### 5. Prepare for publishing (optional)

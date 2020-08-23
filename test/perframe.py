@@ -1,6 +1,8 @@
+from __future__ import print_function
 # test brenda-node by generating small text files
 # as stand-ins for real frames
 
+from builtins import range
 import os, sys, time, optparse
 
 parser = optparse.OptionParser()
@@ -27,10 +29,10 @@ fn = os.path.join(os.environ['TMP'], "info.tmp")
 with open(fn, 'w') as f:
     f.write("start=%d end=%d step=%d pause=%d out=%s\n" % (opts.start, opts.end, opts.step, opts.pause, opts.out))
 
-for i in xrange(opts.start, opts.end+1, opts.step):
+for i in range(opts.start, opts.end+1, opts.step):
     # generate fake frame
     fn = opts.out.replace("######", "%06d") % (i,) + '.txt'
-    print fn
+    print(fn)
     with open(fn, 'w') as f:
         f.write("This is a test, frame #%d\n" % (i,))
     time.sleep(opts.pause)
