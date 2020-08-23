@@ -1,6 +1,8 @@
 Brenda
 ======
 
+This version of brenda requires Python 2. A functional **Python 3 version** is available in the `python-3` branch (thanks to @msmith93). 
+
 Brenda uses Amazon EC2, S3, and SQS to implement a distributed
 render farm using low-cost EC2 spot instances.  Using Brenda,
 you can accelerate complex render tasks by distributing the
