@@ -193,9 +193,24 @@ def init(opts, conf):
         try:
             sec_group = conf.get("SECURITY_GROUP", "brenda")
             print("Creating AWS security group %r." % (sec_group,))
-            sg = ec2.create_security_group(sec_group, 'Brenda security group')
-            sg.authorize('tcp', 22, 22, '0.0.0.0/0')  # ssh
-            sg.authorize('icmp', -1, -1, '0.0.0.0/0') # all ICMP
+            sg = ec2.create_security_group(GroupName=sec_group, Description='Brenda security group')
+            group_id = sg['GroupId']
+            ec2.authorize_security_group_ingress( #ssh
+                CidrIp='0.0.0.0/0',
+                FromPort=22,
+                ToPort=22,
+                IpProtocol='tcp',
+                GroupId=group_id,
+                GroupName=sec_group,
+            )
+            ec2.authorize_security_group_ingress( #all ICMP
+                CidrIp='0.0.0.0/0',
+                FromPort=-1,
+                ToPort=-1,
+                IpProtocol='icmp',
+                GroupId=group_id,
+                GroupName=sec_group,
+            )
         except Exception as e:
             print("Error creating security group", e)
 
