@@ -79,7 +79,9 @@ def spot(opts, conf):
     launch_spec['SecurityGroups'] = sec_groups
     launch_spec['BlockDeviceMappings'] = bdm
     if opts.availability_zone:
-         launch_spec['Placement'] = opts.availability_zone
+        launch_spec['Placement'] = {
+            'AvailabilityZone': opts.availability_zone
+        }
     run_args = {
         'SpotPrice'         : price,
         'Type'          : reqtype,
